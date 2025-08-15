@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Редактирование данных</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 400px; margin: 30px auto; }
+  h1 { color: #333; margin-bottom: 20px; }
+  label { display: block; margin-top: 15px; font-weight: bold; }
+  input[type=text], input[type=password], input[type=date] {
+    width: 100%; padding: 8px; margin-top: 5px;
+    border: 1px solid #ccc; border-radius: 4px;
+    font-style: normal;
+    color: #000;
+  }
+  input[type=text]::placeholder, input[type=password]::placeholder {
+    color: #808080; font-style: italic;
+  }
+  input:focus { outline: none; border-color: #57a639; box-shadow: 0 0 3px #57a639; }
+  .error { color: #ff0000; font-size: 0.9em; margin-top: 3px; }
+  .success { color: #3caa3c; font-size: 0.9em; margin-top: 3px; }
+  button {
+    margin-top: 20px; background-color: #3caa3c; color: white;
+    border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;
+    font-size: 1em;
+  }
+  button:disabled {
+    background-color: #8fbc8f; cursor: default;
+  }
+  input[disabled] {
+    background-color: #f0f0f0; color: #999;
+    border-color: #ccc;
+  }
+</style>
+</head>
+<body>
+
+<h1>Редактирование данных</h1>
+
+<form id="editForm" novalidate autocomplete="off">
+
+  <label for="login">Логин:</label>
+  <input id="login" name="login" type="text" maxlength="10" placeholder="Max 10 символов" />
+  <div id="loginError" class="error"></div>
+
+  <label for="password">Пароль:</label>
+  <input id="password" name="password" type="text" minlength="7" maxlength="16"
+        placeholder="Min: 8 символов - Max: 16 символов" />
+  <div id="passwordError" class="error"></div>
+
+  <label for="birthdate">Дата рождения:</label>
+  <input id="birthdate" name="birthdate" type="date" />
+  <div id="birthdateError" class="error"></div>
+  <div id="birthdateSuccess" class="success"></div>
+
+  <button id="submitBtn" type="submit" disabled>Принять</button>
+
+</form>
+
+<script>
+(() => {
+  const form = document.getElementById('editForm');
+  const loginInput = form.login;
+  const passwordInput = form.password;
+  const birthdateInput = form.birthdate;
+  const submitBtn = form.submitBtn;
+
+  const loginError = document.getElementById('loginError');
+  const passwordError = document.getElementById('passwordError');
+  const birthdateError = document.getElementById('birthdateError');
+  const birthdateSuccess = document.getElementById('birthdateSuccess');
+
+  let oldData = { login: '', password: '', date: '' };
+
+  // Определяем базовый URL для бэка
+  const BACKEND_HOST = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8000'
+    : 'http://backend:8000';
+
+  function validateLogin(value) {
+    if (value === '') return null;
+    if (value.length > 10) return 'Логин должен быть максимум 10 символов';
+    if (!/^[A-Za-z0-9]+$/.test(value)) return 'Логин может содержать только латиницу, цифры и нижнее подчёркивание';
+    return null;
+  }
+
+  function validatePassword(value) {
+    if (value === '') return null;
+    if (value.length < 7 || value.length > 16) return 'Пароль должен быть от 8 до 16 символов';
+    for (let ch of value) {
+      if (ch === ' ' || ch.charCodeAt(0) < 32 || ch.charCodeAt(0) > 126) {
+        return 'Пароль должен содержать только ASCII символы без пробелов';
+      }
+    }
+    return null;
+  }
+
+  function validateDate(value) {
+    if (value === "") return null;
+    const today = new Date();
+    const d = new Date(value);
+    if (d > today) return 'уточнить нужный текст у заказчика';
+    const age = today.getFullYear() - d.getFullYear() - (today.getMonth() < d.getMonth() || (today.getMonth() === d.getMonth() && today.getDate() < d.getDate()) ? 1 : 0);
+    if (age < 18) return 'Пользователь должен быть совершеннолетним';
+    if (age > 99) return 'Пользователь не может быть старше 99 лет';
+    return null;
+  }
+
+  function clearErrors() {
+    loginError.textContent = '';
+    passwordError.textContent = '';
+    birthdateError.textContent = '';
+    birthdateSuccess.textContent = '';
+  }
+
+  function setFieldDisabled(disabled) {
+    loginInput.disabled = disabled;
+    passwordInput.disabled = disabled;
+    birthdateInput.disabled = disabled;
+  }
+
+  async function loadOldData() {
+    try {
+      const resp = await fetch(`${BACKEND_HOST}/`);
+      if (!resp.ok) throw new Error('Не удалось загрузить старые данные');
+      const data = await resp.json();
+      oldData.login = data.login;
+      oldData.password = data.password;
+      oldData.date = data.date;
+
+      loginInput.value = '';
+      passwordInput.value = '';
+      birthdateInput.value = '';
+
+      const todayISO = new Date().toISOString().split('T')[0];
+      birthdateInput.setAttribute('max', todayISO);
+
+      const minYear = new Date();
+      minYear.setFullYear(minYear.getFullYear() - 60);
+      minYear.setDate(minYear.getDate() + 1);
+      birthdateInput.setAttribute('min', minYear.toISOString().split('T')[0]);
+
+      updateSubmitState();
+    } catch (e) {
+      alert('Ошибка загрузки старых данных: ' + e.message);
+    }
+  }
+
+  function hasAnyInput() {
+    return !!(loginInput.value || passwordInput.value || birthdateInput.value);
+  }
+  function updateSubmitState() {
+    submitBtn.disabled = !hasAnyInput();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors();
+
+    const loginVal = loginInput.value;
+    const passwordVal = passwordInput.value;
+    const dateVal = birthdateInput.value;
+
+    let hasError = false;
+
+    const loginErr = validateLogin(loginVal);
+    if (loginErr) { loginError.textContent = loginErr; hasError = true; }
+
+    const passErr = validatePassword(passwordVal);
+    if (passErr) { passwordError.textContent = passErr; hasError = true; }
+
+    const dateErr = validateDate(dateVal === oldData.date ? dateVal : (dateVal || ""));
+    if (dateErr) { birthdateError.textContent = dateErr; hasError = true; }
+
+    if (loginVal !== '' && loginVal === oldData.login && !loginErr) {
+      loginError.textContent = 'Такой логин уже используется';
+      hasError = true;
+    }
+    if (passwordVal !== '' && passwordVal === oldData.password && !passErr) {
+      passwordError.textContent = 'Такой пароль уже используется';
+      hasError = true;
+    }
+    if (dateVal !== '' && dateVal === oldData.date && !dateErr) {
+      birthdateError.textContent = 'Такой возраст уже установлен';
+      hasError = true;
+    }
+
+    if (hasError) {
+      submitBtn.disabled = false;
+      return;
+    }
+
+    const birthVal = (dateVal && dateVal !== oldData.date) ? dateVal : "";
+    const body = { login: loginVal, password: passwordVal, date: birthVal };
+
+    try {
+      const resp = await fetch(`${BACKEND_HOST}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (resp.status === 200) {
+        const result = await resp.json();
+        setFieldDisabled(true);
+        submitBtn.disabled = true;
+        birthdateSuccess.textContent = 'Сохранено';
+
+        oldData.login = result.login ?? (loginVal || oldData.login);
+        oldData.password = result.password ?? (passwordVal || oldData.password);
+        oldData.date = result.date ?? (birthVal || oldData.date);
+      } else if (resp.status === 400) {
+        const err = await resp.json();
+        if (err.detail) {
+          if (err.detail.login) loginError.textContent = err.detail.login;
+          if (err.detail.password) passwordError.textContent = err.detail.password;
+          if (err.detail.date) birthdateError.textContent = err.detail.date;
+        }
+        submitBtn.disabled = false;
+      } else {
+        alert('Неизвестная ошибка: ' + resp.status);
+        submitBtn.disabled = false;
+      }
+    } catch (e) {
+      alert('Ошибка сети: ' + e.message);
+      submitBtn.disabled = false;
+    }
+  });
+
+  const focusOrder = [loginInput, passwordInput, birthdateInput, submitBtn];
+
+  // 🚫 Запрет вставки в поле "Логин"
+  loginInput.addEventListener('paste', e => {
+    e.preventDefault();
+  });
+
+  let focusIndex = 0;
+  focusOrder.forEach((el, idx) => {
+    el.addEventListener('focus', () => {
+      focusIndex = idx;
+    });
+  });
+
+  function focusNext() {
+    const len = focusOrder.length;
+    for (let i = 1; i <= len; i++) {
+      const idx = (focusIndex + i) % len;
+      if (!focusOrder[idx].disabled) {
+        focusIndex = idx;
+        focusOrder[focusIndex].focus();
+        return;
+      }
+    }
+  }
+
+  function focusPrev() {
+    const len = focusOrder.length;
+    for (let i = 1; i <= len; i++) {
+      const idx = (focusIndex - i + len) % len;
+      if (!focusOrder[idx].disabled) {
+        focusIndex = idx;
+        focusOrder[focusIndex].focus();
+        return;
+      }
+    }
+  }
+
+  form.addEventListener('keydown', e => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) focusPrev(); else focusNext();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const active = document.activeElement;
+      if (active === loginInput || active === passwordInput) { active.blur(); }
+      else if (active === birthdateInput) { active.blur(); updateSubmitState(); }
+      else if (active === submitBtn && !submitBtn.disabled) { submitBtn.click(); }
+    }
+  });
+
+  loginInput.addEventListener('input', () => { loginError.textContent = ''; updateSubmitState(); });
+  passwordInput.addEventListener('input', () => { passwordError.textContent = ''; updateSubmitState(); });
+  birthdateInput.addEventListener('input', () => { birthdateError.textContent = ''; birthdateSuccess.textContent = ''; updateSubmitState(); });
+
+  loadOldData();
+
+})();
+</script>
+
+</body>
+</html>
